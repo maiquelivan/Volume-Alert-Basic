@@ -1,0 +1,154 @@
+//+------------------------------------------------------------------+
+//|                                           Volume alert basic.mq5 |
+//|                             Copyright 2000-2024, MetaQuotes Ltd. |
+//|                                  https://www.mql5.com            |
+//+------------------------------------------------------------------+
+#property copyright "Copyright 2000-2024, MetaQuotes Ltd."
+#property link      "https://www.mql5.com"
+//--- indicator settings
+#property indicator_separate_window
+#property indicator_buffers 2
+#property indicator_plots   1
+#property indicator_type1   DRAW_COLOR_HISTOGRAM
+#property indicator_color1  Green,Red
+#property indicator_style1  0
+#property indicator_width1  1
+#property indicator_minimum 0.0
+//--- input data
+input ENUM_APPLIED_VOLUME InpVolumeType = VOLUME_TICK; // Tipo de volumes
+input double InitAlertVolume = 1000; // Valor inicial de volume para alerta
+//--- indicator buffers
+double ExtVolumesBuffer[];
+double ExtColorsBuffer[];
+//--- variável de nível de alerta dinâmico
+double DynamicAlertVolume;
+//--- identifier for the horizontal line object
+string hLineName = "VolumeAlertLine";
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+void OnInit()
+  {
+//--- buffers
+   SetIndexBuffer(0, ExtVolumesBuffer, INDICATOR_DATA);
+   SetIndexBuffer(1, ExtColorsBuffer, INDICATOR_COLOR_INDEX);
+//--- nome para DataWindow e indicador de subjanela
+   IndicatorSetString(INDICATOR_SHORTNAME, "Volumes");
+//--- definir o número de dígitos do indicador
+   IndicatorSetInteger(INDICATOR_DIGITS, 0);
+//--- inicializar a linha horizontal e o nível de alerta dinâmico
+   DynamicAlertVolume = InitAlertVolume;
+   CreateAlertLine(DynamicAlertVolume);
+//--- definir o temporizador para 30 segundos
+   EventSetTimer(30);
+  }
+//+------------------------------------------------------------------+
+//| Função de desinicialização do indicador personalizado             |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   ObjectDelete(0, hLineName); // Deletar a linha horizontal quando o indicador for removido
+   EventKillTimer(); // Remover o temporizador
+  }
+//+------------------------------------------------------------------+
+//| Função chamada a cada vez que o temporizador é ativado            |
+//+------------------------------------------------------------------+
+void OnTimer()
+  {
+   // Verificar o volume mais recente em comparação com o nível da linha
+   double current_volume = ExtVolumesBuffer[ArraySize(ExtVolumesBuffer) - 1];
+
+   // Obter o valor da linha horizontal de alerta
+   DynamicAlertVolume = ObjectGetDouble(0, hLineName, OBJPROP_PRICE);
+
+   // Se o volume atual estiver acima da linha de alerta, exibir o alerta
+   if (current_volume > DynamicAlertVolume)
+     {
+      string alert_message = StringFormat("Alerta: Volume atual (%.0f) está acima do nível de alerta (%.0f)", current_volume, DynamicAlertVolume);
+      Alert(alert_message);
+      SendNotification(alert_message); // Envia a notificação push para o dispositivo móvel
+     }
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+  {
+   if (rates_total < 2)
+      return (0);
+//--- iniciando o trabalho
+   int pos = prev_calculated - 1;
+//--- corrigir a posição
+   if (pos < 1)
+     {
+      ExtVolumesBuffer[0] = 0;
+      pos = 1;
+     }
+//--- ciclo principal
+   if (InpVolumeType == VOLUME_TICK)
+      CalculateVolume(pos, rates_total, tick_volume);
+   else
+      CalculateVolume(pos, rates_total, volume);
+
+//--- OnCalculate concluído. Retorne o novo prev_calculated.
+   return (rates_total);
+  }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void CalculateVolume(const int pos, const int rates_total, const long &volume[])
+  {
+   ExtVolumesBuffer[0] = (double)volume[0];
+   ExtColorsBuffer[0] = 0.0;
+//---
+   for (int i = pos; i < rates_total && !IsStopped(); i++)
+     {
+      double curr_volume = (double)volume[i];
+      double prev_volume = (double)volume[i - 1];
+      //--- calcular indicador
+      ExtVolumesBuffer[i] = curr_volume;
+      if (curr_volume > prev_volume)
+         ExtColorsBuffer[i] = 0.0;
+      else
+         ExtColorsBuffer[i] = 1.0;
+     }
+//---
+  }
+//+------------------------------------------------------------------+
+//| Criar a linha horizontal para ajustar o nível de alerta de volume |
+//+------------------------------------------------------------------+
+void CreateAlertLine(double level)
+  {
+   // Criar uma linha horizontal no subgráfico onde o indicador está sendo desenhado
+   int sub_window = ChartWindowFind(); // Localiza o subgráfico correto para o indicador
+   if (sub_window == -1)
+   {
+      Print("Failed to find the sub-window for the indicator.");
+      return;
+   }
+
+   // Criar a linha horizontal no subgráfico correto
+   if (!ObjectCreate(0, hLineName, OBJ_HLINE, sub_window, 0, level))
+     {
+      Print("Failed to create horizontal line!");
+     }
+   else
+     {
+      ObjectSetInteger(0, hLineName, OBJPROP_COLOR, clrRed); // Cor da linha
+      ObjectSetInteger(0, hLineName, OBJPROP_WIDTH, 2);      // Espessura da linha (maior visibilidade)
+      ObjectSetInteger(0, hLineName, OBJPROP_STYLE, STYLE_DOT); // Estilo pontilhado
+      ObjectSetInteger(0, hLineName, OBJPROP_SELECTABLE, true); // Permitir que a linha seja selecionada
+      ObjectSetInteger(0, hLineName, OBJPROP_HIDDEN, false);    // Certifique-se de que a linha esteja visível
+     }
+  }
+	
